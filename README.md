@@ -41,12 +41,18 @@ application alone.
 
 To flash the binary (the one with .bin) to the LPC Flash you will need the
 lpctool package, now packaged for Debian, starting with Jessie, or available
-in our git repository : http://git.techno-innov.fr/lpctools (Clone using :
-git clone http://gitclone.techno-innov.fr/lpctools and then build (make) and
+in our git repository : 
+
+- http://git.techno-innov.fr/lpctools 
+
+(Clone using : git clone http://gitclone.techno-innov.fr/lpctools and then build (make) and
 use :)
+
 Usual command lines :
-   lpcprog -d /dev/ttyUSB0 -c id
-   lpcprog -d /dev/ttyUSB0 -c flash app_name.bin
+
+- lpcprog -d /dev/ttyUSB0 -c id
+- lpcprog -d /dev/ttyUSB0 -c flash app_name.bin
+
 See lpctools readme and lpcprog or isp help (-h) or manpages for more
 information.
 
