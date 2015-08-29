@@ -1,6 +1,6 @@
-# Station Météo V3 by Anderson69s
+# LPC_Techno_Innov_Demo
 
-- I just add an app : thermometre
+- I just add a folder in apps : thermometre
 - Forked from : <http://git.techno-innov.fr/modules>
 
 This repository provides example code for the development modules made by
