@@ -1,4 +1,6 @@
-TMP101 I2C temperature sensor example
+TMP101 I2C temperature sensor thermometer example
+
+Add by Anderson69s
 
 Copyright 2013 Nathael Pajani <nathael.pajani@ed3l.fr>
 
@@ -20,7 +22,7 @@ Copyright 2013 Nathael Pajani <nathael.pajani@ed3l.fr>
  *************************************************************************** */
 
 This example shows the support of the TMP101 I2C temperature sensor used on the
-GPIO Demo module.
+GPIO Demo module and change led onboard according to the temperature.
 
 
 Periodic temperature conversions (decimal velue and raw conversion value) are
