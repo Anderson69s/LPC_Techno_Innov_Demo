@@ -23,6 +23,10 @@
 /***************************************************************************** */
 /*                UARTs                                                        */
 /***************************************************************************** */
+/* UART driver for the integrated UARTs of the LPC1224.
+ * Refer to LPC1224 documentation (UM10441.pdf) for more information.
+ */
+
 /* Both UARTs are available, UART numbers are in the range 0 - 1 */
 
 #include <stdint.h>
@@ -34,7 +38,6 @@
 #include "lib/utils.h"
 #include "drivers/serial.h"
 
-#define SERIAL_OUT_BUFF_SIZE 64
 struct uart_device
 {
 	uint32_t num;
@@ -146,6 +149,22 @@ static void uart_start_sending(uint32_t uart_num)
 }
 
 
+/****************************************************************************** */
+/*    Serial send byte - quick function with almost no tests.
+ * If the uart is not sending, the byte is placed directly in the data buffer and
+ * the call returns 0.
+ * Else, the call returns -EBUSY and nothing is sent.
+ */
+int serial_send_quickbyte(uint32_t uart_num, uint8_t data)
+{
+	struct uart_device* uart = &uarts[uart_num];
+	if (!uart->sending) {
+		uart->regs->func.buffer = data;
+		return 0;
+	} else {
+		return -EBUSY;
+	}
+}
 
 /***************************************************************************** */
 /*    Serial Write
@@ -174,8 +193,9 @@ int serial_write(uint32_t uart_num, const char *buf, uint32_t length)
 	/* If UART is sending wait for buffer empty */
 	/* FIXME : be smart for OS, call scheduler or return */
 	while (uart->sending != 0) {
-		if (get_priority_mask() == 0)
+		if (get_priority_mask() == 0) {
 			uart_check_tx(uart, uart->regs->func.intr_pending);
+		}
 	}
 
 	if (length > SERIAL_OUT_BUFF_SIZE) {
@@ -216,8 +236,9 @@ int serial_flush(uint32_t uart_num)
 	/* Active wait for message to be sent. If interrupts are
 	 * disabled, call the UART handler while waiting. */
 	while (uart->sending) {
-		if (get_priority_mask() == 0)
+		if (get_priority_mask() == 0) {
 			uart_check_tx(uart, uart->regs->func.intr_pending);
+		}
 	}
 
 	return 0;
@@ -234,7 +255,8 @@ struct uart_clk_cfg {
 	uint8_t mul_val;
 };
 static struct uart_clk_cfg uart_clk_table[] = {
-	{ 1152000, 2, 4, 13},
+	{ 250000, 12, 0, 1},
+	{ 1152000, 2, 3, 10},
 	{ 0, 0, 0, 0, },
 };
 
@@ -255,7 +277,7 @@ static void uart_clk_on(uint32_t uart_num, uint32_t baudrate)
 	pclk = get_main_clock(); /* See above note */
 	div = (pclk / (baudrate * 16));
 	sys_ctrl->uart_clk_div[uart_num] = 0x01;
-	/* The easy one : divider is an integer, or baudrate is low enought for the aproximation */
+	/* The easy one : divider is an integer, or baudrate is low enough for the aproximation */
 	if ((baudrate <= 115200) || ((div * baudrate * 16) == pclk)) {
 		uart->line_ctrl |= LPC_UART_ENABLE_DLAB;
 		uart->ctrl.divisor_latch_lsb = (div & 0xff);
@@ -295,9 +317,9 @@ static uint32_t uart_setup(uint32_t uart_num)
 	struct lpc_uart* uart = uarts[uart_num].regs; /* Get the right registers */
 	uint32_t status = 0;
 	/* Set up UART mode */
-	uart->line_ctrl = uarts[uart_num].config;;
+	uart->line_ctrl = uarts[uart_num].config;
 	/* Clear all fifo, reset and enable them */
-	/* Note : fifo trigger level is one bit */
+	/* Note : fifo trigger level is one byte */
 	uart->ctrl.fifo_ctrl = (LPC_UART_FIFO_EN | LPC_UART_TX_CLR | LPC_UART_RX_CLR);
 	/* Clear the Line Status Register, return it to prevent compiler from removing the read */
 	status = uart->line_status;
@@ -305,6 +327,21 @@ static uint32_t uart_setup(uint32_t uart_num)
 	uart->func.intr_enable = (LPC_UART_RX_INT_EN | LPC_UART_TX_INT_EN);
 
 	return status;
+}
+
+/* Change UART configuration (number of data, parity and stop bits).
+ * config is a mask of LPC_UART_xBIT (x = 5..8), LPC_UART_xSTOP (x = 1..2)
+ *   and one of LPC_UART_NO_PAR, LPC_UART_ODD_PAR or LPC_UART_EVEN_PAR.
+ */
+int uart_set_config(uint8_t uart_num, uint8_t config)
+{
+	struct uart_device* uart = NULL;
+
+	if (uart_num >= NUM_UARTS)
+		return -EINVAL;
+	uart = &uarts[uart_num];
+	uart->config = config;
+	return 0;
 }
 
 struct uart_def
@@ -403,9 +440,6 @@ int uart_on(uint32_t uart_num, uint32_t baudrate, void (*rx_callback)(uint8_t))
 	uarts[uart_num].rx_callback = rx_callback;
 
 	NVIC_DisableIRQ( uart->irq );
-	/* Setup pins, must be done before clock setup and with uart powered off. */
-	uart_clk_off(uart_num);
-	subsystem_power(uart->power_offset, 0);
 	/* Turn On power */
 	subsystem_power(uart->power_offset, 1);
 	/* Setup clock acording to baudrate */

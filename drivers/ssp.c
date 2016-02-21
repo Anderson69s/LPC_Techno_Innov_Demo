@@ -24,6 +24,10 @@
 /*                SSP                                                          */
 /***************************************************************************** */
 
+/* SSP/SPI driver for the SSP bus integrated module of the LPC1224.
+ * Refer to LPC1224 documentation (UM10441.pdf) for more information.
+ */
+
 #include <stdint.h>
 #include "core/lpc_regs_12xx.h"
 #include "core/lpc_core_cm0.h"
@@ -283,8 +287,8 @@ uint32_t ssp_clk_on(uint8_t ssp_num, uint32_t rate)
 	/* Activate the SSP clock (maybe divide main clock) */
 	switch (ssp_num) {
 		case 0 :
-		sys_ctrl->ssp0_clk_div = pclk_div;
-		break;
+			sys_ctrl->ssp0_clk_div = pclk_div;
+			break;
 	}
 
 	/* Set the prescaler */
@@ -309,7 +313,8 @@ void ssp_clk_update(void)
 /* SSP Setup as master */
 /* Returns 0 on success
  * Parameters :
- *  frame_type is SPI, TI or MICROWIRE (use apropriate defines for this one).
+ *  frame_type is SPI, TI or MICROWIRE (use apropriate defines for this one:
+ *     LPC_SSP_FRAME_SPI - LPC_SSP_FRAME_TI - LPC_SSP_FRAME_MICROWIRE).
  *  data_width is a number between 4 and 16.
  *  rate : The bit rate, in Hz.
  * The SPI Chip Select is not handled by the SPI driver in master SPI mode as it's

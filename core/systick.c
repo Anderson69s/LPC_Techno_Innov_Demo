@@ -19,15 +19,19 @@
  *************************************************************************** */
 
 
-
 /***************************************************************************** */
 /*               System Tick Timer                                             */
 /***************************************************************************** */
+
+/* Driver for the internal systick timer of the LPC1224.
+ * Refer to the LPC1224 documentation (UM10441.pdf) for more information
+ */
 
 #include <stdint.h>
 #include "core/lpc_regs_12xx.h"
 #include "core/lpc_core_cm0.h"
 #include "core/system.h"
+#include "core/systick.h"
 
 
 /* Static variables */
@@ -35,6 +39,7 @@ static volatile uint32_t sleep_count = 0;
 static volatile uint32_t tick_ms = 0;
 static volatile uint32_t systick_running = 0;
 static volatile uint32_t tick_reload = 0;
+static uint32_t usleep_us_count = 0;
 
 /* Wraps every 50 days or so with a 1ms tick */
 static volatile uint32_t global_wrapping_system_ticks = 0;
@@ -145,11 +150,18 @@ void systick_reset(void)
 	global_wrapping_system_clock_cycles = tick_reload;
 }
 
-/* Get system tick timer current value (counts at get_main_clock() !) */
+/* Get system tick timer current value (counts at get_main_clock() !)
+ * systick_get_timer_val returns a value between 0 and systick_get_timer_reload_val()
+ */
 uint32_t systick_get_timer_val(void)
 {
 	struct lpc_system_tick* systick = LPC_SYSTICK;
 	return systick->value;
+}
+/* Get system tick timer reload value */
+uint32_t systick_get_timer_reload_val(void)
+{
+	return tick_reload;
 }
 
 /* Check if systick is running (return 1) or not (return 0) */
@@ -229,6 +241,11 @@ void systick_timer_on(uint32_t ms)
 	systick->control = LPC_SYSTICK_CTRL_TICKINT;
 	systick_running = 0;
 
+	/* Perform this division now for the usleep function. */
+	usleep_us_count = get_main_clock() / (1000 * 1000);
+	/* For the LPC1224 the system tick clock is fixed to half the frequency of the system clock */
+	usleep_us_count = (usleep_us_count >> 1); /* Divide by two */
+
 	/* FIXME : document this */
 	NVIC_SetPriority(SYSTICK_IRQ, ((1 << LPC_NVIC_PRIO_BITS) - 1));
 }
@@ -253,21 +270,16 @@ void systick_timer_off(void)
  * Note that calls to this function while a sleep() has been initiated will change the
  *   sleep duration ....
  */
-void set_sleep(uint32_t ticks)
+static inline void set_sleep(uint32_t ticks)
 {
 	sleep_count = ticks;
 }
-/* Return current sleep count_down counter */
-uint32_t get_sleep(void)
-{
-	return sleep_count;
-}
 
 /* Actual sleep function, checks that system tick counter is configured to generate
- * an interrupt to move sleep_count down to 0
+ * an interrupt and to move sleep_count down to 0
  */
 #define SYSTICK_CAN_SLEEP   (LPC_SYSTICK_CTRL_TICKINT | LPC_SYSTICK_CTRL_ENABLE)
-uint32_t sleep(void)
+static uint32_t sleep(void)
 {
 	struct lpc_system_tick* systick = LPC_SYSTICK;
 	if ((systick->control & SYSTICK_CAN_SLEEP) != SYSTICK_CAN_SLEEP) {
@@ -296,6 +308,9 @@ void msleep(uint32_t ms)
 	sleep();
 }
 
+/* This usleep function tries to sleep at most the required amount of time.
+ * The setup is so long that it cannot sleep for less than 10us when running at 48MHz
+ */
 void usleep(uint32_t us)
 {
 	struct lpc_system_tick* systick = LPC_SYSTICK;
@@ -315,11 +330,32 @@ void usleep(uint32_t us)
 			systick_start();
 		}
 	}
-	count = get_main_clock() / (1000 * 1000) * us;
+	count = usleep_us_count * us;
+	 /* Remember that systick is a decrementing counter */
 	if (count > start) {
 		end = (systick->reload_val - (count - start));
 		do { } while (systick_counted_to_zero() == 0); /* Wait for timer loop */
-		do { } while (systick->value > end); /* Wait for sleep duration */
+		do { } while (systick->value > end); /* Wait for remaining part of sleep duration */
+	} else {
+		end = start - count;
+		/* Wait for sleep duration.
+		 * If the counter looped, it means we already waited too much */
+		do { } while ((systick->value > end) && (systick_counted_to_zero() == 0));
+	}
+}
+
+void usleep_short(uint32_t us)
+{
+	struct lpc_system_tick* systick = LPC_SYSTICK;
+	uint32_t start = systick->value; /* Grab the starting (call time) value now */
+	uint32_t count = usleep_us_count * us;
+	uint32_t end = systick_counted_to_zero(); /* Erase loop indicator */
+
+	 /* Remember that systick is a decrementing counter */
+	if (count > start) {
+		end = (systick->reload_val - (count - start));
+		do { } while (systick_counted_to_zero() == 0); /* Wait for timer loop */
+		do { } while (systick->value > end); /* Wait for remaining part of sleep duration */
 	} else {
 		end = start - count;
 		/* Wait for sleep duration.

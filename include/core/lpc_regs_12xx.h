@@ -142,7 +142,7 @@ struct lpc_sys_control
 	uint32_t reserved_11[4];
 
 	volatile uint32_t powerdown_sleep_cfg;  /* 0x230 : Power-down states in Deep-sleep mode (R/W) */
-	volatile uint32_t powerdown_awake_cfg;  /* 0x234 : Power-down states after wake-up (R/W) */
+	volatile uint32_t powerdown_wake_cfg;  /* 0x234 : Power-down states after wake-up (R/W) */
 	volatile uint32_t powerdown_run_cfg;        /* 0x238 : Power-down configuration Register (R/W) */
 	uint32_t reserved_12[110];
 	volatile const uint32_t device_id;  /* 0x3F4 : Device ID (R/ ) */
@@ -199,11 +199,21 @@ struct lpc_sys_control
 #define LPC_DEEP_SLEEP_CFG_NOWDTLOCK_BOD_ON  0x0000FFF7
 #define LPC_DEEP_SLEEP_CFG_NOWDTLOCK_BOD_OFF 0x0000FFFF
 
+#define LPC_MAIN_CLK_SRC_IRC_OSC       0x00
+#define LPC_MAIN_CLK_SRC_PLL_IN        0x01
+#define LPC_MAIN_CLK_SRC_WATCHDOG_OSC  0x02
+#define LPC_MAIN_CLK_SRC_PLL_OUT       0x03
+
+#define LPC_PLL_CLK_SRC_IRC_OSC        0x00
+#define LPC_PLL_CLK_SRC_EXT_OSC        0x01
+
 #define LPC_CLKOUT_SRC_IRC_OSC       0x00
 #define LPC_CLKOUT_SRC_XTAL_OSC      0x01
 #define LPC_CLKOUT_SRC_WATCHDOG_OSC  0x02
 #define LPC_CLKOUT_SRC_MAIN_CLK      0x03
 
+#define LPC_WDT_DIVSEL(x)  (((x) / 2) - 1)
+#define LPC_WDT_FREQSEL_600KHz  (0x01 << 5)
 
 /***************************************************************************** */
 /*                  Flash Control                                              */
@@ -710,14 +720,14 @@ struct lpc_timer
 #define LPC_TIMER_INTERRUPT_ON_MATCH   0x01
 #define LPC_TIMER_RESET_ON_MATCH       0x02
 #define LPC_TIMER_STOP_ON_MATCH        0x04
-#define LPC_TIMER_MATCH_ERASE(x)       (0x07 << ((x) * 3))
-#define LPC_TIMER_MATCH_SHIFT(x)       ((x) * 3)
+#define LPC_TIMER_MATCH_ERASE(x)       (0x07 << (((x) & 0x03) * 3))
+#define LPC_TIMER_MATCH_SHIFT(x)       (((x) & 0x03) * 3)
 /* Capture internal configuration */
 #define LPC_TIMER_CAP_ON_RISING_EDGE   0x01
 #define LPC_TIMER_CAP_ON_FALLING_EDGE  0x02
 #define LPC_TIMER_INTERRUPT_ON_CAPTURE 0x04
-#define LPC_TIMER_CAPTURE_ERASE(x)     (0x07 << ((x) * 3))
-#define LPC_TIMER_CAPTURE_SHIFT(x)     ((x) * 3)
+#define LPC_TIMER_CAPTURE_ERASE(x)     (0x07 << (((x) & 0x03) * 3))
+#define LPC_TIMER_CAPTURE_SHIFT(x)     (((x) & 0x03) * 3)
 /* Match external configuration */
 #define LPC_TIMER_NOTHING_ON_MATCH     0x00
 #define LPC_TIMER_CLEAR_ON_MATCH       0x01
@@ -745,7 +755,7 @@ struct lpc_timer
 #define LPC_COUNTER_CLEAR_ON_CHAN3_RISE   0x06
 #define LPC_COUNTER_CLEAR_ON_CHAN3_FALL   0x07
 /* PWM */
-#define LPC_PWM_CHANNEL_ENABLE(x)    (0x01 << (x))
+#define LPC_PWM_CHANNEL_ENABLE(x)    (0x01 << ((x) & 0x03))
 
 
 
@@ -764,6 +774,27 @@ struct lpc_watchdog
 	volatile uint32_t window_compare;      /* 0x018 : Watchdog Window compare value. */
 };
 #define LPC_WDT         ((struct lpc_watchdog *) LPC_WDT_BASE)
+
+#define LPC_WDT_TIMER_MAX  0xFFFFFF
+
+/* Mode register */
+#define LPC_WDT_EN                  (0x01 << 0)
+#define LPC_WDT_RESET_ON_TIMEOUT    (0x01 << 1)
+#define LPC_WDT_TIMEOUT_FLAG        (0x01 << 2)
+#define LPC_WDT_INTR_FLAG           (0x01 << 3)
+#define LPC_WDT_TIMER_VAL_PROTECT   (0x01 << 4) /* WDPROTECT */
+#define LPC_WDT_CLK_POWER_LOCK      (0x01 << 5) /* WDLOCKCLK */
+#define LPC_WDT_POWER_DOWN_DISABLE  (0x01 << 6) /* WDLOCKDP */
+#define LPC_WDT_EN_LOCK             (0x01 << 7) /* WDLOCKDP */
+
+/* Clk source */
+#define LPC_WDT_CLK_IRC       (0x00 <<  0)
+#define LPC_WDT_CLK_WDOSC     (0x01 <<  0)
+#define LPC_WDT_CLK_SRC_LOCK  (0x01 << 31)
+
+/* Warning Interupt */
+#define LPC_WDT_WARNINT_CMPVAL(x)  ((x) & 0x3FF)
+#define LPC_WDT_WARNINT_MAXVAL     0x3FF
 
 
 /***************************************************************************** */

@@ -28,6 +28,10 @@
 #include "drivers/gpio.h"
 #include "extdrv/cc1101.h"
 
+/* Driver for the CC1101 Sub-1GHz RF transceiver from Texas Instrument.
+ * Refer to CC1101 documentation for more information (swrs061i.pdf)
+ */
+
 
 /***************************************************************************** */
 /*                CC1101                                                       */
@@ -72,14 +76,40 @@ uint8_t cc1101_spi_transfer(uint8_t addr, uint8_t* out, uint8_t* in, uint8_t siz
 }
 
 
-/***************************************************************************** */
-/* SPI registers and commands access Wrappers */
+/* Read and return single register value */
+static uint8_t cc1101_read_reg(uint8_t addr)
+{
+	uint8_t ret = 0;
+	cc1101_spi_transfer((addr | CC1101_READ_OFFSET), NULL, &ret, 1);
+	return ret;
+}
+/* Read nb registers from start_addr into buffer. Return the global status byte. */
+static uint8_t cc1101_read_burst_reg(uint8_t start_addr, uint8_t* buffer, uint8_t nb)
+{
+	uint8_t addr = (start_addr | CC1101_READ_OFFSET | CC1101_BURST_MODE);
+	return cc1101_spi_transfer(addr, NULL, buffer, nb);
+}
+/* Write single register value. Return the global status byte */
+static uint8_t cc1101_write_reg(uint8_t addr, uint8_t val)
+{
+	return cc1101_spi_transfer((addr | CC1101_WRITE_OFFSET), &val, NULL, 1);
+}
+static uint8_t cc1101_write_burst_reg(uint8_t start_addr, uint8_t* buffer, uint8_t nb)
+{
+	uint8_t addr = (start_addr | CC1101_WRITE_OFFSET | CC1101_BURST_MODE);
+	return cc1101_spi_transfer(addr, buffer, NULL, nb);
+}
+
 
 /* Send command and return global status byte */
-uint8_t cc1101_send_cmd(uint8_t addr)
+static uint8_t cc1101_send_cmd(uint8_t addr)
 {
 	return cc1101_spi_transfer((addr | CC1101_WRITE_OFFSET), NULL, NULL, 0);
 }
+
+
+/***************************************************************************** */
+/* SPI registers and commands access Wrappers */
 void cc1101_reset(void)
 {
 	cc1101_send_cmd(CC1101_CMD(reset));
@@ -99,20 +129,41 @@ void cc1101_flush_rx_fifo(void)
 	cc1101_send_cmd(CC1101_CMD(flush_rx));
 }
 
+
+/***************************************************************************** */
+/* Read global status byte */
+uint8_t cc1101_read_status(void)
+{
+	return cc1101_send_cmd(CC1101_CMD(no_op));
+}
+/* Read packet status byte */
+uint8_t cc1101_read_pkt_status(void)
+{
+	return cc1101_send_cmd(CC1101_STATUS(packet_status));
+}
+
+
+/***************************************************************************** */
+/* Change Current mode / status to RX */
 void cc1101_enter_rx_mode(void)
 {
-	cc1101_send_cmd(CC1101_CMD(state_idle));
+	uint8_t status = (cc1101_read_status() & CC1101_STATE_MASK);
+	if (status != CC1101_STATE_RX) {
+		if ((status != CC1101_STATE_FSTON) && (status != CC1101_STATE_TX)) {
+			cc1101_send_cmd(CC1101_CMD(state_idle));
+		}
+	}
 	cc1101_send_cmd(CC1101_CMD(state_rx));
 }
 
 static uint8_t cc1101_enter_tx_mode(void)
 {
-	uint8_t status = 0;
-	status = (cc1101_read_status() & CC1101_STATE_MASK);
-	if (status != CC1101_STATE_TX) {
-		cc1101_send_cmd(CC1101_CMD(state_idle));
-		cc1101_send_cmd(CC1101_CMD(state_tx));
+	uint8_t status = (cc1101_read_status() & CC1101_STATE_MASK);
+	if (status > CC1101_STATE_FSTON) {
+			cc1101_send_cmd(CC1101_CMD(state_idle));
 	}
+	cc1101_send_cmd(CC1101_CMD(state_tx));
+
 	/* Wait until chip is in Tx state */
 	do {
 		status = (cc1101_read_status() & CC1101_STATE_MASK);
@@ -128,36 +179,16 @@ static uint8_t cc1101_enter_tx_mode(void)
 	return 0;
 }
 
-/* Read global status byte */
-uint8_t cc1101_read_status(void)
+void cc1101_enter_fstxon_state(void)
 {
-	return cc1101_send_cmd(CC1101_CMD(no_op));
+	uint8_t status = (cc1101_read_status() & CC1101_STATE_MASK);
+	if (status != CC1101_STATE_FSTON) {
+		if ((status != CC1101_STATE_TX) && (status != CC1101_STATE_RX)) {
+			cc1101_send_cmd(CC1101_CMD(state_idle));
+		}
+		cc1101_send_cmd(CC1101_CMD(start_freq_synth));
+	}
 }
-
-/* Read and return single register value */
-uint8_t cc1101_read_reg(uint8_t addr)
-{
-	uint8_t ret = 0;
-	cc1101_spi_transfer((addr | CC1101_READ_OFFSET), NULL, &ret, 1);
-	return ret;
-}
-/* Read nb registers from start_addr into buffer. Return the global status byte. */
-uint8_t cc1101_read_burst_reg(uint8_t start_addr, uint8_t* buffer, uint8_t nb)
-{
-	uint8_t addr = (start_addr | CC1101_READ_OFFSET | CC1101_BURST_MODE);
-	return cc1101_spi_transfer(addr, NULL, buffer, nb);
-}
-/* Write single register value. Return the global status byte */
-uint8_t cc1101_write_reg(uint8_t addr, uint8_t val)
-{
-	return cc1101_spi_transfer((addr | CC1101_WRITE_OFFSET), &val, NULL, 1);
-}
-uint8_t cc1101_write_burst_reg(uint8_t start_addr, uint8_t* buffer, uint8_t nb)
-{
-	uint8_t addr = (start_addr | CC1101_WRITE_OFFSET | CC1101_BURST_MODE);
-	return cc1101_spi_transfer(addr, buffer, NULL, nb);
-}
-
 
 
 /***************************************************************************** */
@@ -178,6 +209,12 @@ uint8_t cc1101_get_link_quality(void)
 	return (0x3F - (cc1101.link_quality & 0x3F));
 }
 
+
+/* Request a calibration */
+void cc1101_send_calibration_request(void)
+{
+	cc1101_send_cmd(CC1101_CMD(synth_calibration));
+}
 
 /***************************************************************************** */
 /* Rx fifo state :
@@ -343,6 +380,17 @@ void cc1101_set_address(uint8_t address)
 	cc1101_write_reg(CC1101_REGS(device_addr), address);
 }
 
+/* Set current channel to use.
+ * The caller is responsible for checking that the channel spacing and channel bandwith are configures
+ * correctly to prevent overlaping channels, or to use only non-overlaping channel numbers.
+ * This function places the CC1101 chip in idle state.
+ */
+void cc1101_set_channel(uint8_t chan)
+{
+	cc1101_send_cmd(CC1101_CMD(state_idle));
+	cc1101_write_reg(CC1101_REGS(channel_number), chan);
+}
+
 /* Change a configuration byte.
  * This function places the CC1101 chip in idle state.
  */
@@ -359,12 +407,12 @@ static uint8_t rf_init_settings[] = {
 	CC1101_REGS(gdo_config[2]), 0x07, /* GDO_0 - Assert on CRC OK | Disable temp sensor */
 
 	/* RX FIFO and TX FIFO thresholds - 0x03 - FIFOTHR */
-	CC1101_REGS(fifo_thresholds), 0x07, /* Bytes in TX FIFO:33 - Bytes in RX FIFO:32 */
+	CC1101_REGS(fifo_thresholds), 0x47, /* ADC_retention - Bytes in TX FIFO:33 - Bytes in RX FIFO:32 */
 	/* Packet length - 0x06 - PKTLEN */
 	CC1101_REGS(packet_length), 0x3F, /* Max packet length of 63 bytes */
 
 	/* Packet automation control - 0x07 .. 0x08 - PKTCTRL1..0 */
-	CC1101_REGS(pkt_ctrl[0]), 0x07, /* Accept all sync, No CRC auto flush, Append, Addr check and Bcast */
+	CC1101_REGS(pkt_ctrl[0]), 0x0F, /* Accept all sync, CRC err auto flush, Append, Addr check and Bcast */
 	CC1101_REGS(pkt_ctrl[1]), 0x05, /* No data Whitening, Use fifos, CRC check, Variable pkt length */
 
 	/* Device address - 0x09 - ADDR */
@@ -374,13 +422,14 @@ static uint8_t rf_init_settings[] = {
 
 	/* Frequency synthesizer control - 0x0B .. 0x0C - FSCTRL1..0 */
 	CC1101_REGS(freq_synth_ctrl[0]), 0x0C, /* Used for ?? IF: 304.6875 KHz */
+	CC1101_REGS(freq_synth_ctrl[1]), 0x00, /* Reset value */
 
 	/* Carrier Frequency control - FREQ2..0 : Fcarrier == 867.999939 MHz */
 	CC1101_REGS(freq_control[0]), 0x21, /* 0x216276 == Fcarrier * 2^16 / Fxtal */
 	CC1101_REGS(freq_control[1]), 0x62, /*          == approx(868 MHz) * 65536 / 26 MHz */
 	CC1101_REGS(freq_control[2]), 0x76,
 
-	/* Modem configuration - MDMCFG4..0 */
+	/* Modem configuration - MDMCFG4..0 - 0x10 .. 0x14 */
 	/* MDMCFG4..3 : RX filterbandwidth = 541.666667 kHz and Datarate = 249.938965 kBaud */
 	CC1101_REGS(modem_config[0]), 0x2D,
 	CC1101_REGS(modem_config[1]), 0x3B,
@@ -392,12 +441,10 @@ static uint8_t rf_init_settings[] = {
 	/* Modem deviation : DEVIATN */
 	CC1101_REGS(modem_deviation), 0x62, /* Deviation = 127 kHz */
 
-	/* Front End Rx/Tx config : use defaults */
-//	CC1101_REGS(front_end_rx_cfg), 0x56,
-//	CC1101_REGS(front_end_tx_cfg), 0x10,
 
-	/* Main Radio Control State Machine Configuration - MCSM2..0 */
-	CC1101_REGS(radio_stm[1]), 0x3F, /* CCA mode if RSSI below threshold, Stay in RX, Go to RX */
+	/* Main Radio Control State Machine Configuration - MCSM2..0 - 0x16 .. 0x18 */
+	CC1101_REGS(radio_stm[0]), 0x07, /* Use default */
+	CC1101_REGS(radio_stm[1]), 0x3F, /* CCA mode if RSSI below threshold unless Rx, Stay in RX, Go to RX */
 	CC1101_REGS(radio_stm[2]), 0x18, /* PO timeout 149-155us, Auto calibrate from idle to rx/tx */
 
 	/* Frequency Offset Compensation configuration - FOCCFG */
@@ -408,6 +455,12 @@ static uint8_t rf_init_settings[] = {
 	CC1101_REGS(agc_ctrl[0]), 0xC7, /* Don't use 3highest gain, Max LNA gain, 42dB amp from chan filter */
 	CC1101_REGS(agc_ctrl[1]), 0x00, /* LNA 2 gain decr first, Carrier sense relative threshold disabled */
 	CC1101_REGS(agc_ctrl[2]), 0xB0, /* Medium settings, 24 samples wait time, normal op. */
+
+	/* Wake on radio : use defaults */
+
+	/* Front End Rx/Tx config */
+	CC1101_REGS(front_end_rx_cfg), 0xB6,
+	CC1101_REGS(front_end_tx_cfg), 0x10,
 
 	/* Frequency synthesizer calibration - 0x23 .. 0x26 - FSCAL3..0 */
 	CC1101_REGS(freq_synth_cal[0]), 0xEA,
@@ -462,6 +515,7 @@ void cc1101_config(void)
 /* Update CC1101 config
  * Arguments are the settings table which is a table of address and value pairs,
  *   and the table length, which must be even.
+ * Puts the CC1101 chip in idle state
  */
 void cc1101_update_config(uint8_t* settings, uint8_t len)
 {
@@ -469,6 +523,9 @@ void cc1101_update_config(uint8_t* settings, uint8_t len)
 	if (len & 0x01) {
 		return;
 	}
+	/* Chip must be in idle state when modifying any of the Frequency or channel registers.
+	 * Move to idle state for all cases, easier. */
+	cc1101_send_cmd(CC1101_CMD(state_idle));
 	for (i = 0; i < len; i += 2) {
 		cc1101_write_reg(settings[i], settings[i + 1]);
 	}

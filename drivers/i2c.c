@@ -25,12 +25,15 @@
 /*                      I2C                                                   */
 /**************************************************************************** */
 
+/* I2C driver for the I2C bus integrated module of the LPC1224.
+ * Refer to LPC1224 documentation (UM10441.pdf) for more information.
+ */
+
 #include <stdint.h>
 
 #include "core/lpc_regs_12xx.h"
 #include "core/lpc_core_cm0.h"
 #include "core/system.h"
-#include "core/pio.h"
 #include "lib/string.h"
 #include "drivers/i2c.h"
 
@@ -230,7 +233,10 @@ void I2C_0_Handler(void)
 			break;
 
 		case 0x50: /* Data byte has been received and ACK sent */
-			i2c->in_buff[i2c->read_index++] = i2c->regs->data;
+			if (i2c->in_buff != NULL) {
+				i2c->in_buff[i2c->read_index] = i2c->regs->data;
+			}
+			i2c->read_index++;
 			if ((i2c->read_index + 1) < i2c->read_length) {
 				/* assert ACK after data is received, requesting next Data from slave */
 				i2c->regs->ctrl_set = I2C_ASSERT_ACK;
@@ -243,7 +249,10 @@ void I2C_0_Handler(void)
 
 		case 0x58: /* Data byte has been received and NACK "sent" */
 			/* This tells the slave it was the last byte. We should be done. */
-			i2c->in_buff[i2c->read_index++] = i2c->regs->data;
+			if (i2c->in_buff != NULL) {
+				i2c->in_buff[i2c->read_index] = i2c->regs->data;
+			}
+			i2c->read_index++;
 			/* FIXME : We have two other options : Repeated START or STOP + START,
 			 *    but what for ? periodic reads ? */
 			i2c->regs->ctrl_set = I2C_STOP_FLAG;

@@ -26,9 +26,11 @@
 /***************************************************************************** */
 /*                Timers                                                       */
 /***************************************************************************** */
-/* Four timers are available, Two 16 bits and two 32 bits
+/* Timers driver for the integrated timers of the LPC1224.
+ * Four timers are available, Two 16 bits and two 32 bits
  * All timers have 4 channels though 32 bits timers have all 4 channels available
  *   on capture /match pins while 16bits ones have only two (channels 0 and 1).
+ * Refer to LPC1224 documentation (UM10441.pdf) for more information.
  */
 #define NUM_TIMERS 4
 #define NUM_CHANS 4
@@ -54,6 +56,7 @@ enum lpc_timer_mode {
 /* Notes:
  * In counter or PWM mode, the config is done using config[0] for enabled channels and config[1] holds
  *   the channel number used to control PWM cycle.
+ *   Note that the manual recommends Channel 3 be used for PWM cycle length.
  * The field "reset_on_capture" must be set to LPC_COUNTER_CLEAR_ON_EVENT_EN ored with one
  *   of the LPC_COUNTER_CLEAR_ON_CHAN*_* to activate the clear timer on event functionality
  */

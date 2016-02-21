@@ -31,4 +31,8 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args);
 
 int snprintf(char* buf, size_t size, const char *format, ...);
 
+
+int uprintf(int uart_num, const char *format, ...);
+
+
 #endif /* LIB_STDIO_H */
